@@ -39,7 +39,7 @@ References
     Modified by Matt.Wilkie@gov.yk.ca for OSGeo4W,
     beginning July 2008
 '''
-apt_version = '0.3-3-dev'
+apt_version = '0.4'
 #@-<<docstring>>
 #@+<<imports>>
 #@+node:maphew.20100307230644.3847: ** <<imports>>
@@ -96,6 +96,7 @@ Commands:
     version - print installed version of X
 
 Options:
+    -b,--bits=32/64        use 32 or 64bit package mirror (only used with `apt setup`)
     -d,--download          download only
     -i,--ini=FILE          use setup.ini [%(setup_ini)s]
     -m,--mirror=URL        use mirror [%(mirror)s]
@@ -103,7 +104,7 @@ Options:
     -t,--t=NAME            set dist name (*curr*, test, prev)
     -x,--no-deps           ignore dependencies
     -s,--start-menu=NAME   set the start menu name (OSGeo4W)
-       --debug             display debugging statements (very noisy)
+       --debug             display debugging statements
 ''' % {'setup_ini':setup_ini,'mirror':mirror,'root':root}) #As they were just printing as "%(setup_ini)s" etc...
 #@+node:maphew.20121113004545.1577: ** check_env
 def check_env(o4w=''):
@@ -212,19 +213,9 @@ def ball(packages):
         return
 
     for p in packages:
-        #print "\n%s = %s" % (p, get_ball(p))
         d = get_info(p)
         print "\n%s = %s" % (p, d['local_zip'])
-
-        # # won't work, it looks for `distname` and not distname's value, `curr`
-        # print "\n%s = %s" % (p, dists.distname.p.local_zip)
-        # #print dists.curr.shell.local_zip
-
-        # # these are equivalent in output, but near equally messy
-        # # I don't think attrdict will work for this project.
-        # # print dists(distname)(p).local_zip
-        # print dists[distname][p]['local_zip']
-
+    
     return
 #@+node:maphew.20100223163802.3721: *3* download
 def download(packages):
@@ -291,7 +282,7 @@ def info(packages):
     for p in packages:
         d = get_info(p)
         print('')
-        # NB: only prints fields we know about, if something is added
+        # WARNING: only prints fields we know about, if something is added
         # upstream we'll miss it here
         fields = ['name',
             'version',
@@ -480,9 +471,7 @@ def listfiles(packages):
         bin/gdaladdo.exe
         ...etc
     '''
-    #AMR66:
     if isinstance(packages, basestring): packages = [packages]
-    #if type(packages) is str: packages = [packages]
     if not packages:
         help('listfiles')
         sys.stderr.write ('\n*** No packages specified. Use "apt list" to see installed packages.***\n')
@@ -710,6 +699,9 @@ def search(pattern):
 #@+node:maphew.20100223163802.3732: *3* setup
 def setup(target):
     '''Create skeleton Osgeo4W folders and setup database environment'''
+    if not bits:
+        sys.stderr.write('\n*** CPU Architecture not defined. Please use `--bits [32 | 64]`\n')
+        sys.exit(2)    
     if not os.path.isdir(root):
         sys.stderr.write('Root dir not found, creating %s\n' % root)
         os.makedirs(root)
@@ -741,13 +733,14 @@ def update():
         apt --mirror=file:////server/share/...  update
         apt --mirror=file://D:/downloads/cache/...  update
     '''
+    global bits
+    
     if not os.path.exists(downloads):
         os.makedirs(downloads)
 
-    # AMR66: bits now is an option
-    # bits = 'x86'
-    # bits = 'x86_64'
-
+    if not command == 'setup':
+        bits = get_setup_arch(setup_ini)
+    
     # AMR66: changed to uncompressed ini
     filename =  '%s/%s'%(bits, 'setup.ini')
     source = '%s/%s' % (mirror, filename)
@@ -1125,23 +1118,9 @@ def get_all_dependencies(packages, nested_deps, parent=None):
     return uniq(nested_deps)
 	
 def get_arch(bits=""):
-    ''' DRAFT, unused. Would rather do this because X86_64 is awkward 
-    to type on command line compared to '64' or '64bit'. Need to use 
-    setuprc first though.
-    
-    What happens if bitness is not declared?
-    Or set to 64 on one run and then 32 the next?
-    What does mainline setup do?
-    ...I don't know enough.
-    '''
-    
-    '''Determine CPU architecture to use (X86, X86_64) from `--bits` parameter
-    
-        Precedence (top-most wins):
-            - command line parameter
-            - last setup.rc value
-    '''
-    # AMR66: error encountered - changed, but: we don't need this?
+    '''Determine CPU architecture to use (X86, X86_64) from --arch parameter.
+       Allows `--arch 32 | 64` as well as longer `--arch x86 | x86_64` '''
+    # AMR66: error encountered - changed, but: we don't need this? TODO: remove and test
     if bits:
         if '32' in bits: arch = 'x86'
         if '64' in bits: arch = 'x86_64'
@@ -1168,7 +1147,6 @@ def get_cache_dir():
         return globals()['cache_dir']
     if 'last_cache' in globals() and globals()['last_cache'] is not None:
         return globals()['last_cache']
-    # AMR66: changed, because an exception should be cought
     try:
         pubdown = knownpaths.get_path(getattr(knownpaths.FOLDERID, 'PublicDownloads'))
     except knownpaths.PathNotFoundException:
@@ -1180,8 +1158,6 @@ def get_cache_dir():
         if debug: print 'Public downloads "%s" not found, using ./var/cache instead'
         cache_dir = '%s/var/cache/setup' % (root)
     else:
-        # cache_dir = os.path.join(pubdown, 'OSGeo4W-setup-cache')
-        # AMR66: changed, pubdown on its own is ok
         cache_dir = pubdown
     return cache_dir
 #@+node:maphew.20141112222311.3: *3* get_zipfile
@@ -1927,13 +1903,6 @@ sys.excepthook = exceptionHandler
 if __name__ == '__main__':
     #@+<<globals>>
     #@+node:maphew.20100307230644.3841: ** <<globals>>
-    # #disabled pending argparse/whatever implementation
-    # if sys.argv[1] == 'setup':
-        # OSGEO4W_ROOT = sys.argv[2]
-        # OSGEO4W_ROOT = string.replace(OSGEO4W_ROOT, '\\', '/')
-    # else:
-        # OSGEO4W_ROOT = check_env() # look for root in environment
-    ## amr66: globals
     depend_p = 0
     download_p = 0
     command = ""
@@ -1945,19 +1914,16 @@ if __name__ == '__main__':
     distname = 'curr'
     dists = 0
     distnames = ('curr', 'test', 'prev')
-    # bits = "x86"
     bits = ""
-    ## amr66: moved this up, make --root/-r work
     root = ''
     #@-<<globals>>
     #@+<<parse command line>>
     #@+node:maphew.20100307230644.3842: ** <<parse command line>>
-    # amr66: edited parameter list, added -a/--arch, corrected -c --cache 
     (options, params) = getopt.getopt (sys.argv[1:],
-                      'c:dhi:m:r:t:s:xva:',
+                      'c:dhi:m:r:t:s:xvb:',
                       ('cache=', 'download', 'help', 'mirror=', 'root=',
                        'ini=', 't=', 'start-menu=', 'no-deps',
-                       'debug', 'verbose', 'arch=', 'bits='))
+                       'debug', 'verbose', 'bits='))
     # the first parameter is our action,
     # and change `list-installed` to `list_installed`
     if len(params) > 0:
@@ -1970,8 +1936,8 @@ if __name__ == '__main__':
 
     #command aliases
     uninstall = remove
-    if command == 'list': # don't collide with list() function
-        command = 'list_installed' 
+    if command == 'list':
+        command = 'list_installed' # don't collide with list() function
 
     for i in options:
         o = i[0]
@@ -1979,17 +1945,13 @@ if __name__ == '__main__':
 
         if 0:
             pass
-        # AMR66: new option -a --arch setting "architecture bits"
-        # see update: changed to uncompressed setup.ini
-        elif o == '--arch' or o == '-a' or o == '--bits':
-        # AMR66: integrate --bits
-        # changed to lower for X86 or x86 and so on
-            a = a.lower()
+
+        elif o == '--bits' or o == '-b':
+            # translate bitness to CPU architecture: 32 --> x86, 64 --> x86_64
             # if user option is wrong we set empty
-            if o == '--bits':
+            a = a.lower()
+            if o == '--bits' or o =='-b':
                 bits = 'x86' if a == '32' else 'x86_64' if a == '64' else ''
-            else:
-                bits = a if a  == 'x86' else 'x86_64' if a == 'x86_64' else ''
         elif o == '--cache' or o == '-c':
                 cache_dir = a
         elif o == '--download' or o == '-d':
@@ -2051,8 +2013,6 @@ if __name__ == '__main__':
 
     #@+<<post-parse globals>>
     #@+node:maphew.20100307230644.3844: ** <<post-parse globals>>
-    #last_mirror = get_config('last-mirror')
-    #last_cache = get_config('last-cache')
 
     setuprc = parse_setuprc(config + '/setup.rc')
     try:
@@ -2069,10 +2029,6 @@ if __name__ == '__main__':
     mirror_dir = requests.utils.quote(mirror, '').lower()
         # optional quote '' param is to also substitute slashes etc.
 
-    # if last_cache == None:
-        # cache_dir = get_cache_dir()
-    # else:
-        # cache_dir = last_cache
     cache_dir = get_cache_dir()
 
     downloads = '%s/%s' % (cache_dir, mirror_dir)
@@ -2088,9 +2044,9 @@ if __name__ == '__main__':
     #@+<<run the commands>>
     #@+node:maphew.20100307230644.3843: ** <<run the commands>>
     if command == 'setup':
-        # AMR66: setup needs the "bits" flag
         if not bits:
-            bits = 'x86'
+            sys.stderr.write("error: `--bits` is required parameter for Setup\n")
+            
         # AMR66: what if setup is called again, but with wrong "bits" flag
         if os.path.exists(setup_ini):
             print "Warning! Setup was already done for %s"%OSGEO4W_ROOT
@@ -2100,14 +2056,8 @@ if __name__ == '__main__':
                                  (arch, bits))
                 sys.exit(2)
                 
-        setup(OSGEO4W_ROOT)
-        
+        setup(OSGEO4W_ROOT)        
         # AMR66: removed - setup.rc will not be written if we exit here
-        # sys.exit(0)
-    ## AMR66: moved into else, to have "bits" correctly set
-    # elif command == 'update':
-        # update()
-        # # amr66: skip that too?
         # sys.exit(0)
 
     elif command == 'help':
@@ -2120,7 +2070,6 @@ if __name__ == '__main__':
         check_setup(installed_db, setup_ini)
         
         arch = get_setup_arch(setup_ini)
-        # AMR66: changed:
         # set bits to arch in setup_ini, if not set
         if not bits:
             bits = arch
@@ -2128,14 +2077,14 @@ if __name__ == '__main__':
         if not bits == arch:
             sys.stderr.write("error: Architecture mismatch! Setup.ini: '%s', Command line: '%s'\n" % (arch, bits))
             sys.exit(2)
-        # AMR66: could be printed with debug only
-        print "Setup: we are in a %s installation"%arch
+        if debug:
+            print "Architecture: we are in an %s installation" % arch
         
         #fixme: these setup more globals like dists-which-is-really-installed-list
         #that are hard to track later. Should change to "thing = get_thing()"
         dists = parse_setup_ini(setup_ini)
         get_installed()
-        #AMR66: update not working if "bits" is unset
+
         if command == 'update':
             update()
         elif command and command in __main__.__dict__:
